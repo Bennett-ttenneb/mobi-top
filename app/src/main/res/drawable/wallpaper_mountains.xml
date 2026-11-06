@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Default wallpaper: layered mountain ranges in blues under a night-to-dusk sky.
+     960x540dp keeps the drawn bitmap near screen size at 300 dpi. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="960dp"
+    android:height="540dp"
+    android:viewportWidth="1600"
+    android:viewportHeight="900">
+
+    <!-- Sky -->
+    <path android:pathData="M0,0 H1600 V900 H0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear"
+                android:startX="0" android:startY="0" android:endX="0" android:endY="700"
+                android:startColor="#FF0A1730" android:centerColor="#FF1D3D6B" android:endColor="#FF5B8CC4" />
+        </aapt:attr>
+    </path>
+
+    <!-- Moon with a soft halo -->
+    <path android:fillColor="#1FCFE3FF" android:pathData="M1240,190 m-90,0 a90,90 0 1,0 180,0 a90,90 0 1,0 -180,0" />
+    <path android:fillColor="#FFDCEAFF" android:pathData="M1240,190 m-46,0 a46,46 0 1,0 92,0 a46,46 0 1,0 -92,0" />
+
+    <!-- Far range with snow caps -->
+    <path android:fillColor="#FF3B6A9C"
+        android:pathData="M0,520 L120,430 L220,480 L340,360 L460,450 L560,400 L700,300 L820,420 L940,370 L1060,440 L1180,330 L1300,430 L1420,380 L1600,460 L1600,900 L0,900 Z" />
+    <!-- Each cap starts and ends exactly on its peak's two slopes so it sits on the mountain -->
+    <path android:fillColor="#FFE3EEFA" android:pathData="M340,360 L290,410 L310,400 L325,412 L342,398 L360,410 L380,402 L407,410 Z" />
+    <path android:fillColor="#FFE3EEFA" android:pathData="M700,300 L630,350 L655,342 L672,354 L695,340 L715,352 L732,343 L750,350 Z" />
+    <path android:fillColor="#FFE3EEFA" android:pathData="M1180,330 L1134,372 L1152,365 L1168,376 L1185,363 L1203,374 L1218,366 L1230,372 Z" />
+
+    <!-- Middle range -->
+    <path android:fillColor="#FF27507F"
+        android:pathData="M0,600 L150,520 L280,580 L420,490 L560,570 L680,520 L820,600 L960,500 L1100,580 L1240,510 L1380,590 L1500,540 L1600,580 L1600,900 L0,900 Z" />
+
+    <!-- Near range -->
+    <path android:fillColor="#FF173763"
+        android:pathData="M0,700 L180,620 L320,690 L500,610 L640,680 L800,640 L980,720 L1140,630 L1300,700 L1460,650 L1600,690 L1600,900 L0,900 Z" />
+
+    <!-- Foreground hills -->
+    <path android:fillColor="#FF0B1F3D"
+        android:pathData="M0,800 Q200,740 400,790 T800,780 T1200,800 T1600,770 L1600,900 L0,900 Z" />
+</vector>

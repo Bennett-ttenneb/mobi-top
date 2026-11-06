@@ -1,0 +1,15 @@
+# Build output
+.gradle/
+build/
+app/build/
+local.properties
+desktop/stage/
+desktop/payload.zip
+dist/
+*.apk
+
+# Logs from test runs
+*.log
+
+# scrcpy (Apache 2.0) is downloaded into tools/, not committed; see README
+tools/scrcpy-win64-v5.0.1/

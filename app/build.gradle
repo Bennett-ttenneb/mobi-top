@@ -1,0 +1,20 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mobitop'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.mobitop'
+        minSdk 29 // Android 10: first version with desktop mode on external displays
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

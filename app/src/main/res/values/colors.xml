@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Middle colour of the default desktop wallpaper -->
+    <color name="icon_background">#FF203A43</color>
+</resources>
