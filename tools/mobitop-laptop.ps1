@@ -78,7 +78,7 @@ function Get-Window($p) {
 # A hidden, ready-made window; Mobi-Top opens the next app on its screen
 function New-Spare {
     $log = Join-Path $env:TEMP "mobitop-win-$(Get-Random).log"
-    $p = Start-Scrcpy @("--new-display=${appW}x${appH}/$appDpi", '--flex-display', '--no-vd-system-decorations', '--no-audio',
+    $p = Start-Scrcpy @("--new-display=${appW}x${appH}/$appDpi", '--flex-display', '--no-vd-system-decorations', '--no-audio', '--window-borderless',
         '--display-ime-policy=local', '"--window-title=Mobi-Top app"', '--window-x=-4000', '--window-y=0') $log
     $m = Wait-Display $p $log
     if (-not $m) { if (-not $p.HasExited) { $p.Kill() }; return $null }
@@ -95,21 +95,18 @@ function Get-Title([string]$pkg) {
     return (Get-Culture).TextInfo.ToTitleCase($s)
 }
 
-# Puts an app window inside the Mobi-Top window, keeping its title bar (move, minimise,
-# maximise, close all work within Mobi-Top). x/y are relative to the Mobi-Top screen.
-function Add-Child([IntPtr]$h, [int]$x, [int]$y) {
-    $style = [Win]::GetWindowLong($h, -16) # GWL_STYLE
-    [Win]::SetWindowLong($h, -16, ($style -band 0x7FFFFFFF) -bor 0x40000000) | Out-Null # WS_POPUP off, WS_CHILD on
-    [Win]::SetParent($h, $mainH) | Out-Null
-    [Win]::SetWindowPos($h, [IntPtr]::Zero, $x, $y, 0, 0, 0x0025) | Out-Null # NOSIZE|NOZORDER|FRAMECHANGED
-    [Win]::ShowWindow($h, 5) | Out-Null # SW_SHOW
-    [Win]::BringWindowToTop($h) | Out-Null
+# Puts an app window inside the Mobi-Top window in a slim Mobi-Top frame (Frames.cs): move,
+# minimise, maximise and close all work within Mobi-Top. x/y are relative to the Mobi-Top screen.
+function Add-Child([IntPtr]$h, [string]$title, [int]$x, [int]$y) {
+    $r = New-Object Win+RECT
+    [Win]::GetClientRect($h, [ref]$r) | Out-Null
+    [AppFrame]::Wrap($mainH, $h, $title, $x, $y, $r.R, $r.B) | Out-Null
 }
 
 # A phone-shaped window: same resolution and zoom as the phone's own screen, scaled to the app window height
 function New-PhoneWindow([string]$title, [int]$x, [int]$y) {
     $log = Join-Path $env:TEMP "mobitop-win-$(Get-Random).log"
-    $p = Start-Scrcpy @("--new-display=$phoneSize/$phoneDpi", '--no-vd-system-decorations', '--no-audio',
+    $p = Start-Scrcpy @("--new-display=$phoneSize/$phoneDpi", '--no-vd-system-decorations', '--no-audio', '--window-borderless',
         '--display-ime-policy=local', "`"--window-title=$title`"", "--window-x=$x", "--window-y=$y", "--window-height=$appH") $log
     $m = Wait-Display $p $log
     if (-not $m) { if (-not $p.HasExited) { $p.Kill() }; return $null }
@@ -151,12 +148,14 @@ if (-not $m) {
     if (-not $main.HasExited) { $main.Kill() }
     exit 1
 }
-$W = [int]$m.Groups[1].Value; $H = [int]$m.Groups[2].Value
+$dispW = [int]$m.Groups[1].Value; $dispH = [int]$m.Groups[2].Value
 $phoneSize = ([regex]::Match((& $adb shell wm size) -join ' ', '\d+x\d+')).Value # e.g. 1080x2400
 $phoneDpi = ([regex]::Match((& $adb shell wm density) -join ' ', '\d+')).Value    # e.g. 440
 $taskbar = [int](48 * [int]$m.Groups[3].Value / 160)
 $id = $m.Groups[4].Value
-$usableH = $H - $taskbar
+$usableH = $dispH - $taskbar
+Add-Type -Path (Join-Path $PSScriptRoot 'Frames.cs') -ReferencedAssemblies System.Windows.Forms, System.Drawing -ErrorAction Stop
+[AppFrame]::Start([Win]::GetDpiForSystem() / 96.0, $taskbar)
 
 # Lets Mobi-Top (and only Mobi-Top) ask Android for full-screen app windows, a test-only option;
 # without it HyperOS draws its phone-style floating frame inside each laptop window
@@ -170,7 +169,7 @@ if (-not ((& $adb shell dumpsys platform_compat) -match 'ALLOW_TEST_API_ACCESS;.
 $spare = $null; $wins = @(); $seen = @{}; $n = 0; $told = $null; $tick = 0
 try {
     while (-not $main.HasExited) {
-        Start-Sleep -Seconds 1
+        for ($k = 0; $k -lt 20; $k++) { [AppFrame]::Pump(); Start-Sleep -Milliseconds 50 } # wait 1 s, keeping window messages moving (see Frames.cs)
         $tick++
         if ($spare -and $spare.p.HasExited) { $spare = $null }
         if (-not $spare) { $spare = New-Spare }
@@ -202,11 +201,11 @@ try {
                 if (Test-Portrait $t.task) { $phone = New-PhoneWindow $title $x $y }
                 if ($phone) {
                     & $adb shell am display move-stack $t.root $phone.id | Out-Null
-                    Add-Child (Get-Window $phone.p) $x $y
+                    Add-Child (Get-Window $phone.p) $title $x $y
                     $wins += @{ p = $phone.p; root = $t.root; disp = $phone.id; empty = 0 }
                 } else {
                     [Win]::SetWindowText($h, $title) | Out-Null
-                    Add-Child $h $x $y
+                    Add-Child $h $title $x $y
                     $wins += @{ p = $spare.p; root = $t.root; disp = $spare.id; empty = 0 }
                     $spare = $null
                 }
@@ -232,17 +231,17 @@ try {
         # first 4 checks rather than a fixed time.
         foreach ($t in $tasks) {
             if ($t.disp -ne $id -or $t.pkg -eq 'com.miui.home' -or $seen[$t.task] -ge 4) { continue }
-            $full = $t.l -eq 0 -and $t.t -eq 0 -and $t.r -eq $W -and $t.b -eq $H
+            $full = $t.l -eq 0 -and $t.t -eq 0 -and $t.r -eq $dispW -and $t.b -eq $dispH
             if ($full -and $t.pkg -ne 'com.mobitop') { continue } # still opening; real size comes next
             $seen[$t.task]++
             if ($t.pkg -eq 'com.mobitop') {
-                if (-not $full) { & $adb shell am task resize $t.task 0 0 $W $H | Out-Null; $seen[$t.task] = 4 }
+                if (-not $full) { & $adb shell am task resize $t.task 0 0 $dispW $dispH | Out-Null; $seen[$t.task] = 4 }
                 continue
             }
-            if ($t.l -ge 0 -and $t.t -ge 0 -and $t.r -le $W -and $t.b -le $usableH) { continue } # already fits
+            if ($t.l -ge 0 -and $t.t -ge 0 -and $t.r -le $dispW -and $t.b -le $usableH) { continue } # already fits
             # Same cascade as DesktopActivity.windowBounds
-            $w = [int]($W * 3 / 5); $h = [int]($usableH * 7 / 10); $step = $taskbar
-            $x = [Math]::Max(0, [Math]::Min([int]($W / 8) + ($n % 6) * $step, $W - $w))
+            $w = [int]($dispW * 3 / 5); $h = [int]($usableH * 7 / 10); $step = $taskbar
+            $x = [Math]::Max(0, [Math]::Min([int]($dispW / 8) + ($n % 6) * $step, $dispW - $w))
             $y = [Math]::Max(0, [Math]::Min([int]($usableH / 12) + ($n % 6) * $step, $usableH - $h))
             $n++
             & $adb shell am task resize $t.task $x $y ($x + $w) ($y + $h) | Out-Null

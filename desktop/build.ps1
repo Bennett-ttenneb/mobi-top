@@ -42,7 +42,7 @@ if ($p.ExitCode) { throw 'launcher self-test failed' }
 
 # Everything it needs at run time
 Copy-Item (Join-Path $root 'tools\scrcpy-win64-v5.0.1') $stage -Recurse
-Copy-Item (Join-Path $root 'tools\mobitop-laptop.ps1'), (Join-Path $root 'tools\scrcpy.png'), (Join-Path $root 'tools\disconnected.png') $stage
+Copy-Item (Join-Path $root 'tools\mobitop-laptop.ps1'), (Join-Path $root 'tools\Frames.cs'),(Join-Path $root 'tools\scrcpy.png'), (Join-Path $root 'tools\disconnected.png') $stage
 Copy-Item (Join-Path $root 'Mobi-Top.apk') $stage
 
 # Installer with the whole stage folder inside it

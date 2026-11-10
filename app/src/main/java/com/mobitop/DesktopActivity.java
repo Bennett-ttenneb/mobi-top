@@ -77,6 +77,7 @@ public class DesktopActivity extends Activity {
 
     private final List<App> apps = new ArrayList<>();
     private final List<App> shown = new ArrayList<>();
+    private final java.util.concurrent.ExecutorService loader = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private SharedPreferences prefs;
     private ImageView wallpaper;
@@ -157,6 +158,7 @@ public class DesktopActivity extends Activity {
         if (NotifService.onChange != null) NotifService.onChange = null;
         try { sessions.removeOnActiveSessionsChangedListener(sessionsChanged); } catch (Exception ignored) { }
         setController(null);
+        loader.shutdownNow();
     }
 
     @Override
@@ -387,21 +389,31 @@ public class DesktopActivity extends Activity {
         notifPanel.setVisibility(View.GONE);
     }
 
+    // Loading every app's name and icon takes seconds; done on the main thread it froze the whole
+    // desktop (start button included) each time it came back to the front
     private void loadApps() {
         PackageManager pm = getPackageManager();
-        Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        apps.clear();
-        for (ResolveInfo ri : pm.queryIntentActivities(i, 0)) {
-            if (ri.activityInfo.packageName.equals(getPackageName())) continue;
-            App a = new App();
-            a.cn = new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name);
-            a.label = ri.loadLabel(pm).toString();
-            a.icon = ri.loadIcon(pm);
-            apps.add(a);
-        }
-        apps.sort((x, y) -> x.label.compareToIgnoreCase(y.label));
-        filter(search.getText().toString());
-        renderPins();
+        String me = getPackageName();
+        loader.execute(() -> {
+            List<App> list = new ArrayList<>();
+            Intent i = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+            for (ResolveInfo ri : pm.queryIntentActivities(i, 0)) {
+                if (ri.activityInfo.packageName.equals(me)) continue;
+                App a = new App();
+                a.cn = new ComponentName(ri.activityInfo.packageName, ri.activityInfo.name);
+                a.label = ri.loadLabel(pm).toString();
+                a.icon = ri.loadIcon(pm);
+                list.add(a);
+            }
+            list.sort((x, y) -> x.label.compareToIgnoreCase(y.label));
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                apps.clear();
+                apps.addAll(list);
+                filter(search.getText().toString());
+                renderPins();
+            });
+        });
     }
 
     private void filter(String q) {
