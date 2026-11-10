@@ -7,6 +7,8 @@ $env:SCRCPY_ICON_DIR = $PSScriptRoot # mobitop icon instead of scrcpy's, if pres
 # App windows live inside the Mobi-Top window, where SDL never sees them gain focus; without this
 # it swallows every click as a "focus" click and the app never gets it
 $env:SDL_MOUSE_FOCUS_CLICKTHROUGH = '1'
+# Hardware acceleration choice from the launcher (encoder and renderer options), added to every window
+$accel = @("$env:MOBITOP_SCRCPY_ARGS" -split ' ' | Where-Object { $_ })
 Add-Type @"
 using System; using System.Runtime.InteropServices;
 public static class Win {
@@ -50,7 +52,7 @@ $appH = [int](($deskH - 48 * $dpi / 160 - 140) / 16) * 16
 function Start-Scrcpy([string[]]$opts, [string]$log) {
     Remove-Item "$log*" -ErrorAction SilentlyContinue
     Start-Process (Join-Path $dir 'scrcpy.exe') -PassThru -NoNewWindow `
-        -RedirectStandardOutput $log -RedirectStandardError "$log.err" -ArgumentList $opts
+        -RedirectStandardOutput $log -RedirectStandardError "$log.err" -ArgumentList ($opts + $accel)
 }
 
 # scrcpy prints "New display: 1920x1072/240 (id=4)" once the phone has made the screen
@@ -165,16 +167,21 @@ if (-not ((& $adb shell dumpsys platform_compat) -match 'ALLOW_TEST_API_ACCESS;.
 # Full-screen desktop, no HyperOS window frame
 & $adb shell am start --display $id --windowingMode 1 -n com.mobitop/.DesktopActivity | Out-Null
 
-$spare = $null; $wins = @(); $seen = @{}; $n = 0
+$spare = $null; $wins = @(); $seen = @{}; $n = 0; $told = $null; $tick = 0
 try {
     while (-not $main.HasExited) {
         Start-Sleep -Seconds 1
+        $tick++
         if ($spare -and $spare.p.HasExited) { $spare = $null }
         if (-not $spare) { $spare = New-Spare }
         if ($spare) {
             # scrcpy shows its window itself when the first frame arrives, which can be after we hid it
             if ([Win]::IsWindowVisible($spare.h)) { [Win]::ShowWindow($spare.h, 0) | Out-Null }
-            & $adb shell am broadcast -n com.mobitop/.SpareReceiver --ei display $spare.id | Out-Null
+            # Tell Mobi-Top when the spare changes, and every 10 s in case Android restarted it (one adb call a second fewer)
+            if ($told -ne $spare.id -or $tick % 10 -eq 0) {
+                & $adb shell am broadcast -n com.mobitop/.SpareReceiver --ei display $spare.id | Out-Null
+                $told = $spare.id
+            }
         }
 
         $tasks = @(Get-Tasks)

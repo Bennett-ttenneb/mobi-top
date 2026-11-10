@@ -21,7 +21,7 @@ class Launcher
     readonly Window win;
     readonly Ellipse dot;
     readonly TextBlock status;
-    readonly Border launch, mirror, installApp;
+    readonly Border launch, mirror, installApp, accel;
     Process desktop, mirrorProc;
     bool probing, installing;
     string error;
@@ -37,7 +37,7 @@ class Launcher
     Launcher()
     {
         StackPanel body;
-        win = Ui.Frame("Mobi-Top", 540, out body);
+        win = Ui.Frame("Mobi-Top", 602, out body);
         body.Children.Add(Ui.Logo());
         body.Children.Add(Ui.Label("MOBI-TOP", 34, Ui.Text));
         body.Children.Add(Ui.Label("Your phone, as a desktop.", 15, Ui.Muted));
@@ -45,7 +45,8 @@ class Launcher
         launch = Ui.Button("LAUNCH DESKTOP", true, ToggleDesktop);
         mirror = Ui.Button("MIRROR PHONE", false, ToggleMirror);
         installApp = Ui.Button("INSTALL PHONE APP", false, InstallApp);
-        body.Children.Add(launch); body.Children.Add(mirror); body.Children.Add(installApp);
+        accel = Ui.Button(AccelLabel(), false, ToggleAccel);
+        body.Children.Add(launch); body.Children.Add(mirror); body.Children.Add(installApp); body.Children.Add(accel);
         body.Children.Add(Ui.Label("Connect your phone by USB with USB debugging on, and tap Allow on the phone the first time.", 12, Ui.Muted));
 
         status.Text = "Looking for your phone…";
@@ -53,7 +54,7 @@ class Launcher
         installApp.Visibility = Visibility.Collapsed;
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        timer.Tick += (s, e) => Probe();
+        timer.Tick += (s, e) => { if (!Alive(desktop) && !Alive(mirrorProc)) Probe(); }; // no adb polling while a session runs
         timer.Start();
         win.Loaded += (s, e) => Probe();
         win.Closed += (s, e) => { Stop(ref desktop); Stop(ref mirrorProc); }; // closing the launcher ends what it started
@@ -112,6 +113,7 @@ class Launcher
         var psi = new ProcessStartInfo("powershell.exe",
             "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"" + Path.Combine(Ui.Dir, "mobitop-laptop.ps1") + "\"")
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        psi.EnvironmentVariables["MOBITOP_SCRCPY_ARGS"] = AccelArgs();
         desktop = Start(psi, () =>
         {
             Ui.SetText(launch, "LAUNCH DESKTOP");
@@ -119,14 +121,14 @@ class Launcher
             desktop = null;
             Probe();
         });
-        if (desktop != null) Ui.SetText(launch, "STOP DESKTOP");
+        if (desktop != null) { Ui.SetText(launch, "STOP DESKTOP"); Probe(); }
     }
 
     void ToggleMirror()
     {
         error = null;
         if (Alive(mirrorProc)) { Stop(ref mirrorProc); Ui.SetText(mirror, "MIRROR PHONE"); return; }
-        var psi = new ProcessStartInfo(Path.Combine(Scrcpy, "scrcpy.exe"), "\"--window-title=Mobi-Top · Phone\" --stay-awake")
+        var psi = new ProcessStartInfo(Path.Combine(Scrcpy, "scrcpy.exe"), "\"--window-title=Mobi-Top · Phone\" --stay-awake " + AccelArgs())
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         psi.EnvironmentVariables["SCRCPY_ICON_DIR"] = Ui.Dir; // Mobi-Top icon on the mirror window
         mirrorProc = Start(psi, () =>
@@ -136,7 +138,7 @@ class Launcher
             mirrorProc = null;
             Probe();
         });
-        if (mirrorProc != null) Ui.SetText(mirror, "STOP MIRROR");
+        if (mirrorProc != null) { Ui.SetText(mirror, "STOP MIRROR"); Probe(); }
     }
 
     void InstallApp()
@@ -156,6 +158,33 @@ class Launcher
                 Probe();
             });
         });
+    }
+
+    // ---------- Hardware acceleration ----------
+    // On: the phone's hardware video encoder (scrcpy's default pick), then GPU decoding (D3D11VA, which
+    // needs the Direct3D 11 renderer) and GPU drawing on the laptop; the CPU barely touches the video.
+    // Off: Android's built-in software encoder, CPU decoding and drawing, 30 fps; slower, but a way
+    // round black or glitchy windows on phones or PCs with buggy graphics drivers.
+    const string Settings = @"Software\MobiTop";
+
+    static bool Accel
+    {
+        get { using (var k = Registry.CurrentUser.OpenSubKey(Settings)) return k == null || !0.Equals(k.GetValue("HardwareAcceleration")); }
+        set { using (var k = Registry.CurrentUser.CreateSubKey(Settings)) k.SetValue("HardwareAcceleration", value ? 1 : 0, RegistryValueKind.DWord); }
+    }
+
+    static string AccelArgs()
+    {
+        return Accel ? "--render-driver=direct3d11" : "--video-encoder=c2.android.avc.encoder --render-driver=software --max-fps=30";
+    }
+
+    static string AccelLabel() { return "HARDWARE ACCELERATION · " + (Accel ? "ON" : "OFF"); }
+
+    void ToggleAccel()
+    {
+        Accel = !Accel;
+        Ui.SetText(accel, AccelLabel());
+        if (Alive(desktop) || Alive(mirrorProc)) { dot.Fill = Ui.Warn; status.Text = "Stop and start again to apply"; }
     }
 
     // ---------- Helpers ----------
@@ -218,6 +247,7 @@ class Launcher
             try { File.Delete(lnk); } catch (Exception) { }
         }
         Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\MobiTop", false);
+        Registry.CurrentUser.DeleteSubKeyTree(Settings, false);
         // This exe lives in the folder being removed, so let cmd delete it after we exit
         Process.Start(new ProcessStartInfo("cmd.exe", "/c timeout /t 2 /nobreak >nul & rmdir /s /q \"" + dir + "\"")
         { UseShellExecute = false, CreateNoWindow = true });
